@@ -1,0 +1,41 @@
+---
+page_title: "Provider: Muster"
+description: |-
+  Manages the configuration of Muster, the self-hosted alert grouping and on-call service, through its API.
+---
+
+# Muster Provider
+
+The Muster provider keeps the configuration of [Muster](https://github.com/muster-io/muster) as code: it reads and
+writes Muster's objects through its API, with the token of a Service account that has the Admin Role. It works with
+Terraform and with OpenTofu.
+
+## Example Usage
+
+{{ tffile "examples/provider/provider.tf" }}
+
+## Authentication
+
+1. In Muster, an Admin creates a Service account, such as `terraform`, with the Admin Role, and a token for it, in
+   the web UI or through the API (`createServiceAccount`, then `createServiceAccountToken`).
+2. The pipeline that runs Terraform or OpenTofu sets that token in `MUSTER_TOKEN`, or in the provider's `token`, and
+   Muster's public URL in `MUSTER_ENDPOINT`, or in `endpoint`.
+
+A value in the provider block wins over the environment. When the provider is configured, it reads Muster's System
+status, which only the Admin Role may read, so the same call checks the token, its Role and Muster's version:
+
+- a token that Muster refuses stops with an error that names `MUSTER_TOKEN` or `token`, wherever it came from;
+- a token of a Service account without the Admin Role stops with "The token needs the Admin Role".
+
+## Versions
+
+- **Muster** 0.2.0 or newer. A Muster that reports an older release `X.Y.Z` stops the provider with
+  "Muster 0.1.4 is older than 0.2.0, the oldest version this provider works with". There is no upper bound, since
+  `0.2.x` releases only add to the API. A version that is not a plain release `X.Y.Z` — a development build such as
+  `0.0.0-dev`, a pre-release, or a build with a suffix such as `0.2.1-5-gabc1234` — cannot be compared: the provider
+  goes on with a warning.
+- **Terraform** 1.11 or newer, or **OpenTofu** 1.11 or newer: the write-only attributes (`*_wo`) of Secrets need them.
+  The sensitive attributes of Secrets also work on older releases, which are not tested beyond a check that they
+  refuse the write-only ones.
+
+{{ .SchemaMarkdown | trimspace }}

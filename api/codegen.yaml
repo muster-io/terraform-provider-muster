@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT
+# Copyright The Muster Authors
+
+# oapi-codegen: the client of Muster's API and its models from the copy api/openapi.yaml (make generate).
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oapi-codegen/oapi-codegen/v2.8.2/configuration-schema.json
+package: gen
+output: internal/client/gen/client.gen.go
+generate:
+  client: true
+  models: true
+output-options:
+  skip-prune: true # schemas reachable only from webhooks would be dropped otherwise
+  nullable-type: true # tells an omitted optional field from an explicit null, which clears it on an update
+  exclude-tags: # requests Muster sends, and the internal listener's health and metrics
+    - Outgoing webhooks
+    - Health and metrics

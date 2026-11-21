@@ -1,0 +1,96 @@
+// SPDX-License-Identifier: MIT
+// Copyright The Muster Authors
+
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: ["config:best-practices"],
+  rangeStrategy: "pin",
+  postUpdateOptions: ["gomodTidy"],
+  dependencyDashboard: true,
+  // Dependency updates are committed as `build(deps): …`, which release-please lists under "Dependencies" instead of
+  // "Bug Fixes". config:best-practices types every update `chore` and the runtime dependencies `fix` through package
+  // rules, which a top-level semanticCommitType cannot override: the rules at the end of packageRules replace `fix`
+  // with `build`, and the other updates stay `chore`, outside the changelog and without a release of their own.
+  semanticCommits: "enabled",
+  semanticCommitScope: "deps",
+  // Version policy, as in Muster's repository: routine updates arrive once a week, grouped per ecosystem, and merge
+  // themselves when every required check passes. Major updates wait in the Dependency Dashboard until a maintainer
+  // ticks them. Security fixes are not held by the schedule.
+  schedule: ["before 6am on Monday"],
+  minimumReleaseAge: "3 days",
+  prConcurrentLimit: 4,
+  prHourlyLimit: 2,
+  // A tool version pinned on the line under a `# renovate:` comment: `NAME_VERSION := v1.2.3` in the Makefile,
+  // `NAME_VERSION: v1.2.3` in a workflow's env.
+  customManagers: [
+    {
+      customType: "regex",
+      managerFilePatterns: ["/^Makefile$/", "/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      matchStrings: [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n\\s*[A-Z_]+_VERSION(?: :=|:) (?<currentValue>\\S+)",
+      ],
+    },
+  ],
+  packageRules: [
+    {
+      matchUpdateTypes: ["major"],
+      dependencyDashboardApproval: true,
+    },
+    {
+      matchUpdateTypes: ["minor", "patch", "pin", "pinDigest", "digest"],
+      automerge: true,
+      automergeType: "pr",
+      platformAutomerge: true,
+    },
+    {
+      matchDatasources: ["github-actions"],
+      groupName: "GitHub Actions",
+    },
+    {
+      matchDatasources: ["go"],
+      matchUpdateTypes: ["minor", "patch"],
+      groupName: "Go modules (non-major)",
+    },
+    {
+      matchPackageNames: ["/oapi-codegen/"],
+      matchDatasources: ["go"],
+      prBodyNotes: "Regenerate the client with `make generate` and commit it.",
+    },
+    {
+      matchPackageNames: ["/terraform-plugin-docs/"],
+      matchDatasources: ["go"],
+      prBodyNotes: "Regenerate docs/ with `make docs` and commit it.",
+    },
+    // go.mod's go line and the CI's Go version are moved by hand when Go releases.
+    {
+      matchDatasources: ["golang-version"],
+      enabled: false,
+    },
+    // The maintainer moves the Terraform and OpenTofu versions of the acceptance matrix, the Muster image of the
+    // acceptance tests (the pin in api/, moved with make spec-sync) and the provider's own examples, not Renovate.
+    {
+      matchManagers: ["terraform"],
+      enabled: false,
+    },
+    {
+      matchPackageNames: ["hashicorp/terraform", "opentofu/opentofu", "ghcr.io/muster-io/muster"],
+      enabled: false,
+    },
+    {
+      matchDepTypes: ["require"],
+      semanticCommitType: "build",
+    },
+    {
+      matchJsonata: ["isLockfileUpdate = true"],
+      semanticCommitType: "chore",
+    },
+  ],
+  lockFileMaintenance: {
+    enabled: true,
+    schedule: ["before 3am on Monday"],
+  },
+  vulnerabilityAlerts: {
+    enabled: true,
+    labels: ["security"],
+  },
+}

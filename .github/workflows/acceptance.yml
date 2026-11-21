@@ -1,0 +1,136 @@
+# SPDX-License-Identifier: MIT
+# Copyright The Muster Authors
+
+# The acceptance tests against muster dev from Muster's image, with PostgreSQL (make testacc, test/muster-dev.sh). On
+# pull requests, pushes to master and by hand: the lowest and the newest supported Terraform and OpenTofu, against the
+# image of the pin (api/MUSTER_VERSION, or api/MUSTER_COMMIT before Muster's release). Daily: the newest of each against
+# Muster's development image edge, so that a change of Muster that breaks the provider shows at once. The tests named
+# TestAcc…_oldCLI run only in the job old-cli, on Terraform 1.10 and OpenTofu 1.10, which have no write-only
+# attributes; the matrix of tests skips them (ACC_RUN and ACC_SKIP in the Makefile). The ruleset of master requires the
+# jobs acceptance and old-cli. The versions of the CLIs and the image of the daily run are the
+# maintainer's to move, not Renovate's.
+name: acceptance
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  schedule:
+    - cron: '41 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: acceptance-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  GOTOOLCHAIN: local
+  # Empty: the image of the pin.
+  MUSTER_IMAGE: ${{ github.event_name == 'schedule' && 'ghcr.io/muster-io/muster:edge' || '' }}
+
+jobs:
+  tests:
+    name: acceptance (${{ matrix.cli }} ${{ matrix.version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(github.event_name == 'schedule' && '[{"cli":"terraform","version":"latest"},{"cli":"opentofu","version":"latest"}]' || '[{"cli":"terraform","version":"~1.11.0"},{"cli":"terraform","version":"latest"},{"cli":"opentofu","version":"~1.11.0"},{"cli":"opentofu","version":"latest"}]') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.x'
+      - if: matrix.cli == 'terraform'
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ matrix.version }}
+          terraform_wrapper: false
+      - if: matrix.cli == 'opentofu'
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: ${{ matrix.version }}
+          tofu_wrapper: false
+      - name: point the tests at the CLI
+        env:
+          CLI: ${{ matrix.cli }}
+        run: |
+          if [ "$CLI" = terraform ]; then bin=$(command -v terraform); else bin=$(command -v tofu); fi
+          "$bin" version
+          echo "TF_ACC_TERRAFORM_PATH=$bin" >>"$GITHUB_ENV"
+      - run: make testacc
+
+  # Terraform 1.10 and OpenTofu 1.10 refuse the write-only attributes and accept the sensitive ones: only the tests
+  # TestAcc…_oldCLI run here ($$ is make's escape of $; the single quotes keep it from the shell).
+  old-cli-tests:
+    name: old-cli (${{ matrix.cli }} ${{ matrix.version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - cli: terraform
+            version: '~1.10.0'
+          - cli: opentofu
+            version: '~1.10.0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.x'
+      - if: matrix.cli == 'terraform'
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ matrix.version }}
+          terraform_wrapper: false
+      - if: matrix.cli == 'opentofu'
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: ${{ matrix.version }}
+          tofu_wrapper: false
+      - name: point the tests at the CLI
+        env:
+          CLI: ${{ matrix.cli }}
+        run: |
+          if [ "$CLI" = terraform ]; then bin=$(command -v terraform); else bin=$(command -v tofu); fi
+          "$bin" version
+          echo "TF_ACC_TERRAFORM_PATH=$bin" >>"$GITHUB_ENV"
+      - run: make testacc ACC_RUN='_oldCLI$$' ACC_SKIP=
+
+  # The required checks: each passes only when every job of its matrix succeeded.
+  acceptance:
+    name: acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [tests]
+    if: ${{ always() }}
+    steps:
+      - name: every job succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$NEEDS" | jq -e 'to_entries | all(.value.result == "success")' >/dev/null
+
+  old-cli:
+    name: old-cli
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [old-cli-tests]
+    if: ${{ always() }}
+    steps:
+      - name: every job succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$NEEDS" | jq -e 'to_entries | all(.value.result == "success")' >/dev/null

@@ -1,0 +1,11 @@
+# Build output, installed tools and coverage profiles
+/bin/
+# GoReleaser's snapshot and release builds
+/dist/
+# Terraform's working files of local tries
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
+# Local, unpublished files of the maintainer
+CLAUDE.local.md
