@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: MIT
+# Copyright The Muster Authors
+
+# A vX.Y.Z tag, created when release-please's release pull request merges, builds the release: GoReleaser adds the
+# zips, terraform-provider-muster_<version>_SHA256SUMS with its detached GPG signature and the Registry manifest to the
+# release that release-please created, which is what the Terraform Registry and the OpenTofu Registry read. The key
+# comes from the secrets GPG_PRIVATE_KEY and PASSPHRASE; without them the workflow stops before it builds anything.
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GOTOOLCHAIN: local
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      # renovate: datasource=github-releases depName=goreleaser/goreleaser
+      GORELEASER_VERSION: v2.18.3
+    steps:
+      - name: check the signing secrets
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          PASSPHRASE: ${{ secrets.PASSPHRASE }}
+        run: |
+          missing=
+          [ -n "$GPG_PRIVATE_KEY" ] || missing="$missing GPG_PRIVATE_KEY"
+          [ -n "$PASSPHRASE" ] || missing="$missing PASSPHRASE"
+          if [ -n "$missing" ]; then
+            echo "::error::the release needs the secrets GPG_PRIVATE_KEY and PASSPHRASE to sign SHA256SUMS; missing:$missing"
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.x'
+      - uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7.0.0
+        id: gpg
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.PASSPHRASE }}
+      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          version: ${{ env.GORELEASER_VERSION }}
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GPG_FINGERPRINT: ${{ steps.gpg.outputs.fingerprint }}
